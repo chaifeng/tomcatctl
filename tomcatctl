@@ -1,0 +1,180 @@
+#!/bin/sh
+# Tomcat Control Script
+#
+# Usage:
+#   ln -s /path/to/tomcatctl $HOME/apache-tomcat-6.0.37/
+#   sudo ln -s $HOME/apache-tom-6.0.37/tomcatctl /etc/init.d/tomcatctl
+#   sudo /etc/init.d/tomcatctl status
+#
+#   In crontab
+#     */1 * * * * $HOME/apache-tomcat-6.0.37/tomcatctl monitor http://localhost:8080/ > /dev/null || $HOME/apache-tomcat-6.0.37/tomcatctl condrestart > /dev/null
+#
+
+CATALINA_HOME=$CATALINA_HOME
+JAVA_HOME=$JAVA_HOME
+
+[ -z "$CATALINA_HOME" ] && CATALINA_HOME="$(dirname "$0")"
+[ -z "$JAVA_HOME" ] && for _JH in /usr/java/default /usr/lib/jvm/java-6-openjdk-amd64/jre; do
+    [ -d "$_JH" ] && JAVA_HOME="$_JH" && break
+done
+
+if [ ! -f "$CATALINA_HOME/bin/catalina.sh" ] && [ -L "$0" ]; then
+    _L=$(readlink "$0")
+    CATALINA_HOME=$(dirname "$_L")
+fi
+
+if [ ! -f "$CATALINA_HOME/bin/catalina.sh" ]; then
+    echo "Invalid catalina home: $CATALINA_HOME"
+    exit 1
+fi
+export TOMCAT_OWNER=$(stat --format %U $CATALINA_HOME)
+if [ "$USER" != "$TOMCAT_OWNER" ]; then
+    sudo -u "$TOMCAT_OWNER" "$0" "$@"
+    exit $?
+fi
+
+export CATALINA_HOME
+export JAVA_HOME
+export CATALINA_PID=$CATALINA_HOME/catalina.pid
+export JAVA_OPTS="-Dfile.encoding=UTF-8 -XX:MaxPermSize=512m -Xms2048m -Xmx2048m"
+export LANG="zh_CN.UTF-8"
+
+LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CATALINA_HOME/lib
+export LD_LIBRARY_PATH
+
+CATALINA_TEMP=$CATALINA_HOME/temp
+ERROR_CHECK_FILE="$CATALINA_TEMP/tomcatfail"
+MAX_ERROR_COUNT=2
+STARTUP_WAIT=100
+SHUTDOWN_WAIT=30
+
+cd "$CATALINA_HOME"
+
+start() {
+    set -e
+    echo "Starting Tomcat:  "
+    $CATALINA_HOME/bin/startup.sh
+    set +e
+    sleep 2
+    clear_error_check_file
+}
+stop() {
+    [ -f "$CATALINA_PID" ] || return 0
+    echo "Stopping Tomcat: "
+    TOMCAT_UPTIME=$(tomcat_uptime)
+    if [ $STARTUP_WAIT -gt $TOMCAT_UPTIME ]; then
+        WAITING_FOR=$(expr $STARTUP_WAIT '-' $TOMCAT_UPTIME)
+        for loopIndex in $(seq $WAITING_FOR -1 1); do
+            echo -n Waiting for $loopIndex ... $'\r'
+            sleep 1 || return 4
+        done
+    fi
+    PID=$(cat "$CATALINA_PID")
+    $CATALINA_HOME/bin/shutdown.sh
+    for loopIndex in $(seq $SHUTDOWN_WAIT -1 1); do
+        echo -n Waiting for $loopIndex ... $'\r'
+        sleep 1 || break
+        ps -p "$PID" > /dev/null || break;
+    done
+    if [ -e "$CATALINA_PID" ]; then
+        ps -p "$PID" > /dev/null && kill -9 $PID > /dev/null
+        rm "$CATALINA_PID"
+    fi
+    clear_error_check_file
+}
+restart() {
+    stop
+    start
+}
+status() {
+    PID=$([ -f "$CATALINA_PID" ] && cat "$CATALINA_PID")
+    if [ -z "$PID" ]; then
+        echo "Tomcat($CATALINA_HOME) is stoped"
+        return 1
+    else
+        ps -p "$PID" > /dev/null
+        if [ 0 -eq $? ]; then
+            echo "Tomcat($PID, $CATALINA_HOME) is running..."
+            return 0
+        else
+            echo "PID file exists, but tomcat($CATALINA_HOME) is stoped"
+        fi
+    fi
+    return 2
+}
+condrestart() {
+    status > /dev/null
+    if [ 1 -eq $? ]; then
+        return 1
+    else
+        restart
+    fi
+}
+log() {
+    tail -f $CATALINA_HOME/logs/catalina.out
+}
+clear_error_check_file() {
+    [ -f "${ERROR_CHECK_FILE}" ] \
+    && [ "$(stat --format %s "$ERROR_CHECK_FILE")" -gt 0 ] \
+    && mv "${ERROR_CHECK_FILE}" "${ERROR_CHECK_FILE}-$(date '+%Y%m%d%H%M%S')"
+    return 0
+}
+tomcat_uptime() {
+    TIMESTAMP_NOW=$(date +%s)
+    TIMESTAMP_PID=$(stat --format "%Y" "$CATALINA_PID")
+    expr $TIMESTAMP_NOW '-' $TIMESTAMP_PID
+}
+monitor() {
+    TOMCAT_APP_URL="$1"
+    [ -z "$TOMCAT_APP_URL" ] && echo "Usage: $0 monitor <url>" && return 0
+    status > /dev/null || return $?
+    TOMCAT_UPTIME=$(tomcat_uptime)
+    [ $STARTUP_WAIT -ge $TOMCAT_UPTIME ] && return 0
+    if type tempfile > /dev/null 2>&1; then
+        ERROR_OUTPUT=$(tempfile)
+    else
+        ERROR_OUTPUT="$(date "+/tmp/tempfile%Y%m%d%H%M%S%N")"
+    fi
+    curl --fail --silent -v --max-time 5 "$TOMCAT_APP_URL" 2> "$ERROR_OUTPUT" 1> /dev/null
+    _ERROR_CODE=$?
+    if [ "$_ERROR_CODE" -eq 0 ]; then
+        clear_error_check_file
+    else
+        echo "$_ERROR_CODE $(date '+%F %T') $(fgrep --max-count=1 'The requested URL returned error' "$ERROR_OUTPUT")" >> "$ERROR_CHECK_FILE"
+        rm "$ERROR_OUTPUT"
+        cat "$ERROR_CHECK_FILE"
+        ERROR_COUNT=$(cat "$ERROR_CHECK_FILE" | wc -l)
+        if [ $ERROR_COUNT -ge $MAX_ERROR_COUNT ]; then
+            return 3
+        fi
+    fi
+    return 0
+}
+
+# See how we were called.
+case "$1" in
+    start)
+        start
+        ;;
+    stop)
+        stop
+        ;;
+    status)
+        status
+        ;;
+    restart)
+        restart
+        ;;
+    condrestart)
+        condrestart
+        ;;
+    log)
+        log
+        ;;
+    monitor)
+        monitor "$2"
+        ;;
+    *)
+        echo $"Usage: $0 {start|stop|restart|status|condrestart|log|monitor <url>}"
+        exit
+esac
