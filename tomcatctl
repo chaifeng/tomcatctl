@@ -24,6 +24,10 @@ if [ ! -f "$CATALINA_HOME/bin/catalina.sh" ] && [ -L "$0" ]; then
 fi
 
 if [ ! -f "$CATALINA_HOME/bin/catalina.sh" ]; then
+    CATALINA_HOME=$(pwd)
+fi
+
+if [ ! -f "$CATALINA_HOME/bin/catalina.sh" ]; then
     echo "Invalid catalina home: $CATALINA_HOME"
     exit 1
 fi
@@ -150,6 +154,24 @@ monitor() {
     fi
     return 0
 }
+rotate_catalina_out() {
+    [ -z "$CATALINA_HOME" ] && return 1
+    if hash logrotate 2> /dev/null; then
+        LOGROTATE_CONF="$CATALINA_HOME/logrotate-catalina-out.conf"
+        LOGROTATE_STATUS="$CATALINA_HOME/logrotate-catalina-out.status"
+        [ -f "$LOGROTATE_CONF" ] || echo """$CATALINA_HOME/logs/catalina.out {
+  copytruncate
+  daily
+  rotate 99
+  compress
+  missingok
+  size 50M
+}""" > "$LOGROTATE_CONF"
+        logrotate -s "$LOGROTATE_STATUS" "$LOGROTATE_CONF"
+    fi
+}
+
+rotate_catalina_out
 
 # See how we were called.
 case "$1" in
