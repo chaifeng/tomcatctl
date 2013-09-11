@@ -139,20 +139,21 @@ monitor() {
     else
         ERROR_OUTPUT="$(date "+/tmp/tempfile%Y%m%d%H%M%S%N")"
     fi
+    RETVAL=0
     curl --fail --silent -v --max-time 5 "$TOMCAT_APP_URL" 2> "$ERROR_OUTPUT" 1> /dev/null
     _ERROR_CODE=$?
     if [ "$_ERROR_CODE" -eq 0 ]; then
         clear_error_check_file
     else
         echo "$_ERROR_CODE $(date '+%F %T') $(fgrep --max-count=1 'The requested URL returned error' "$ERROR_OUTPUT")" >> "$ERROR_CHECK_FILE"
-        rm "$ERROR_OUTPUT"
         cat "$ERROR_CHECK_FILE"
         ERROR_COUNT=$(cat "$ERROR_CHECK_FILE" | wc -l)
         if [ $ERROR_COUNT -ge $MAX_ERROR_COUNT ]; then
-            return 3
+            RETVAL=3
         fi
     fi
-    return 0
+    rm "$ERROR_OUTPUT"
+    return $RETVAL
 }
 rotate_catalina_out() {
     [ -z "$CATALINA_HOME" ] && return 1
