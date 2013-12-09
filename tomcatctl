@@ -14,7 +14,7 @@ CATALINA_HOME=$CATALINA_HOME
 JAVA_HOME=$JAVA_HOME
 
 [ -z "$CATALINA_HOME" ] && CATALINA_HOME="$(dirname "$0")"
-[ -z "$JAVA_HOME" ] && for _JH in /usr/java/default /usr/lib/jvm/java-6-openjdk-amd64/jre; do
+[ -z "$JAVA_HOME" ] && for _JH in /usr/java/default /usr/lib/jvm/java-7-oracle/jre /usr/lib/jvm/java-6-openjdk-amd64/jre; do
     [ -d "$_JH" ] && JAVA_HOME="$_JH" && break
 done
 
