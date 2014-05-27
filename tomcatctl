@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 # Tomcat Control Script
 #
 # Usage:
@@ -9,6 +9,8 @@
 #   In crontab
 #     */1 * * * * $HOME/apache-tomcat-6.0.37/tomcatctl monitor http://localhost:8080/ > /dev/null || $HOME/apache-tomcat-6.0.37/tomcatctl condrestart > /dev/null
 #
+
+[[ "$TOMCATCTL_TRACE" ]] && set -x
 
 CATALINA_HOME=$CATALINA_HOME
 JAVA_HOME=$JAVA_HOME
