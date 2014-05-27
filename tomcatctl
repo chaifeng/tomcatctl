@@ -100,7 +100,7 @@ status() {
     else
         ps -p "$PID" > /dev/null
         if [ 0 -eq $? ]; then
-            echo "Tomcat($PID, $CATALINA_HOME) is running..."
+            echo "Tomcat($PID, $CATALINA_HOME) was started at $(date --reference "${CATALINA_PID}" '+%Y-%m-%d %H:%M:%S')"
             return 0
         else
             echo "PID file exists, but tomcat($CATALINA_HOME) is stoped"
